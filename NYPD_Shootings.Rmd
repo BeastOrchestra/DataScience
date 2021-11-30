@@ -1,0 +1,118 @@
+---
+title: "NYPD_Shootings"
+author: "Alec Jeffery"
+date: "11/3/2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, eval = TRUE)
+library(tidyverse)
+library(lubridate)
+```
+
+## Obtain Data
+Data will be taken from a public library of shooting data in NYC between 2006 & 2020.
+```{r, eval=TRUE,echo = TRUE}
+url_in <- "https://catalog.data.gov/dataset/nypd-shooting-incident-data-historic"
+filenames <- c("https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD")
+data <- read_csv(filenames[1])
+```
+## Tidy Data
+Clean data by removing unused columns (Lon-Lat) and grouping by date and Boro.Total count of shootings per dat, per burrow will be taken. 
+
+```{r, eval=TRUE, echo = TRUE}
+tidyData <- data %>% mutate(date = mdy(OCCUR_DATE))  %>% select(-Lon_Lat) %>% group_by(floor_date(date, "month"), BORO) %>% summarise(tot = n())
+tidyData <- tidyData %>% rename(Date = `floor_date(date, "month")`)
+summary(tidyData)
+```
+## Visualize the Data - Line Plot
+A simple point plot & line plot by date and total number of deaths is provided. A general negative downtrend is observed respective of shooting date.
+
+```{r, eval=TRUE, echo = FALSE}
+tidyData %>% 
+  ggplot(aes(x = Date, y = tot)) +
+  geom_line(aes(color="tot")) +
+  geom_point(aes(color="tot")) +
+  theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 45)) +
+  labs(title = "Total Shootings in NYC [2006-2021]", y=NULL)
+
+```
+
+## Visualize the Data - Stacked Area
+A stacked area plot demonstrates how location (Borrow) influences shootings. Brooklyn Burrow
+routinely has the highest count of shootings of all five Borrows. 
+```{r, eval=TRUE,echo = FALSE}
+# stacked area chart
+ggplot(tidyData, aes(x=Date, y=tot, fill=BORO)) + 
+    geom_area() + 
+    theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 45)) +
+    labs(title = "Total Shootings in NYC by Boro [2006-2021]", y=NULL)
+
+```
+
+## Produce new columns for linear models
+Total shootings for all of NYC without consideration to Race or Location will be made.
+A liner model will be built for the data that predicts shootings for date in time. With an adjusted R-squared value of 0.1762, there is room for improvement.
+
+```{r,echo = TRUE, eval= TRUE}
+max(tidyData$tot)
+tidyData <- tidyData %>%
+  mutate(delta = tot-lag(tot),pctdetla = delta/lag(tot))
+tidyData
+
+totalNY <- tidyData %>%
+  group_by(Date) %>%
+  summarize(deaths = sum(tot))
+
+mod <- lm(deaths ~ Date, data = totalNY)
+summary(mod)
+totalNY <- totalNY %>% mutate(pred = predict(mod))
+totalNY %>% ggplot() +
+  geom_point(aes(x=Date, y=deaths), color='blue') + 
+  geom_line(aes(x=Date, y=pred), color='red') + 
+  theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 45)) +
+  labs(title = "Total Shootings in NYC, [2006-2021]", y=NULL)
+```
+
+## Isolate Black civilians within Brooklyn and build model.
+One observation from the data is that Brooklyn Burrow as well as Black civilians have elevated rates of shooting victims. A total shootings per date was made for Black victims in Brooklyn and a linear model was generated to see if the R-squared is improved from the total population model.
+
+The model performs less well than the general population model. The R-squared value for black civilian shootings in Brooklyn is 0.1446.
+```{r}
+BrooklynDeaths <- data %>% mutate(date = mdy(OCCUR_DATE))  %>% select(-Lon_Lat) %>% group_by(floor_date(date, "month"), VIC_RACE) %>% filter(BORO =="BROOKLYN", VIC_RACE == "BLACK")  %>% summarise(tot = n())
+  BrooklynDeaths <- BrooklynDeaths %>% 
+  rename(Date = `floor_date(date, "month")`)
+summary(BrooklynDeaths)
+
+BrooklynDeaths <- BrooklynDeaths %>%
+  group_by(Date) %>% 
+  summarize(deaths = sum(tot))
+
+mod2 <- lm(deaths ~ Date, data = BrooklynDeaths)
+summary(mod2)
+BrooklynDeaths <- BrooklynDeaths %>% mutate(pred2 = predict(mod2))
+BrooklynDeaths %>% ggplot() +
+  geom_point(aes(x=Date, y=deaths), color='blue') + 
+  geom_line(aes(x=Date, y=pred2), color='red') +
+  theme(legend.position = "bottom",
+          axis.text.x = element_text(angle = 45)) +
+  labs(title = "Total Shootings in Brooklyn of Black civilians, [2006-2021]", y=NULL)
+
+```
+
+## Conclusion and Notes on Bias
+Shooting data from New York between 2006 and 2020 was imported from a web source and analyzed.The data possesses fields for various locations (Burrows, precincts, Latitudinal and longitudinal coordinates) as well as victim characteristics (Race, age, gender).
+
+Review of the data presents some superficial trends that evolve over time. Trends also appear to be nonhomogenous with respect to race as well as localities. General trendlines were produced for all shootings as well as specifically Black civilians in the Brooklyn burrow. To improve predictive the strength of linear models, a further study of races and locations is suggested. Additional research in to victim race and perpitrator race may shed additional insight. A final suggestion is a comparative study of rates of shooting for victims of different races (i.e ratio of White shootings vs. Black shootings) to see if there is a time dependence to these ratios.
+
+Note on Bias -- My own personal bias is that location will influence shootings moreso than  identity. Trying to approach the data in an uninfluenced and unbiased manner ultimately allowed me to see that subgroups, specifically identity subgroups, incur different rates of violence. 
+
+
+## Session info
+
+```{r eval=TRUE, echo=TRUE}
+
+sessionInfo()
